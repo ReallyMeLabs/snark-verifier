@@ -43,6 +43,7 @@ use std::{
     fs::{self, File},
     marker::PhantomData,
     path::Path,
+    io::Cursor,
 };
 
 pub mod aggregation;
@@ -227,6 +228,50 @@ where
     snark
 }
 
+pub fn gen_snark_to_buffer<'params, ConcreteCircuit, P, V>(
+    params: &'params ParamsKZG<Bn256>,
+    pk: &ProvingKey<G1Affine>,
+    circuit: ConcreteCircuit,
+    buffer: &mut Vec<u8>,
+) -> Snark
+where
+    ConcreteCircuit: CircuitExt<Fr>,
+    P: Prover<'params, KZGCommitmentScheme<Bn256>>,
+    V: Verifier<
+        'params,
+        KZGCommitmentScheme<Bn256>,
+        Guard = GuardKZG<'params, Bn256>,
+        MSMAccumulator = DualMSM<'params, Bn256>,
+    >,
+{
+    let protocol = compile(
+        params,
+        pk.get_vk(),
+        Config::kzg()
+            .with_num_instance(circuit.num_instance())
+            .with_accumulator_indices(ConcreteCircuit::accumulator_indices()),
+    );
+
+    let instances = circuit.instances();
+    let proof = gen_proof::<ConcreteCircuit, P, V>(params, pk, circuit, instances.clone(), None);
+
+    let snark = Snark::new(protocol, instances, proof);
+
+
+    // Serialize SNARK into buffer
+    buffer.clear(); // Clear existing data in the buffer
+    let mut cursor = Cursor::new(buffer);
+    #[cfg(feature = "display")]
+    let write_time = start_timer!(|| "Write SNARK to buffer");
+    bincode::serialize_into(&mut cursor, &snark).unwrap();
+    #[cfg(feature = "display")]
+    end_timer!(write_time);
+
+
+    #[allow(clippy::let_and_return)]
+    snark
+}
+
 /// Generates a SNARK using GWC multi-open scheme. Uses Poseidon for Fiat-Shamir.
 ///
 /// Tries to first deserialize from / later serialize the entire SNARK into `path` if specified.
@@ -251,6 +296,15 @@ pub fn gen_snark_shplonk<ConcreteCircuit: CircuitExt<Fr>>(
     path: Option<impl AsRef<Path>>,
 ) -> Snark {
     gen_snark::<ConcreteCircuit, ProverSHPLONK<_>, VerifierSHPLONK<_>>(params, pk, circuit, path)
+}
+
+pub fn gen_snark_shplonk_to_buffer<ConcreteCircuit: CircuitExt<Fr>>(
+    params: &ParamsKZG<Bn256>,
+    pk: &ProvingKey<G1Affine>,
+    circuit: ConcreteCircuit,
+    buffer: &mut Vec<u8>,
+) -> Snark {
+    gen_snark_to_buffer::<ConcreteCircuit, ProverSHPLONK<_>, VerifierSHPLONK<_>>(params, pk, circuit, buffer)
 }
 
 /// Tries to deserialize a SNARK from the specified `path` using `bincode`.
