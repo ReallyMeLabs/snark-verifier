@@ -316,7 +316,7 @@ pub fn read_snark(path: impl AsRef<Path>) -> Result<Snark, bincode::Error> {
 }
 
 
-pub fn read_snark_from_buffer(buffer: Vec<u8>) -> Result<Snark, bincode::Error> {
+pub fn read_snark_from_buffer(buffer: &Vec<u8>) -> Result<Snark, bincode::Error> {
     let cursor = Cursor::new(buffer); // Treat the buffer as a readable stream
     bincode::deserialize_from(cursor) // Deserialize directly from the cursor
 }
